@@ -12,7 +12,6 @@ import core.app.apps.completion.app_generator as module
 from core.app.apps.completion.app_generator import CompletionAppGenerator
 from core.app.apps.exc import GenerateTaskStoppedError
 from core.app.entities.app_invoke_entities import InvokeFrom
-from graphon.file import FILE_MODEL_IDENTITY
 from graphon.model_runtime.errors.invoke import InvokeAuthorizationError
 from models.enums import ConversationFromSource
 from models.model import AppMode, AppModelConfig, Conversation, Message
@@ -171,7 +170,6 @@ class TestCompletionAppGenerator:
         mocker.patch.object(generator, "_handle_response", return_value="response")
         mocker.patch.object(module.CompletionAppGenerateResponseConverter, "convert", return_value="converted")
 
-        session = MagicMock()
         result = generator.generate(
             session=sqlite_session,
             app_model=_build_app_model(),
@@ -184,7 +182,7 @@ class TestCompletionAppGenerator:
         assert result == "converted"
         assert generator.generate_entity.call_args.kwargs["extras"]["trace_session_id"] == "session-1"
         module.file_factory.build_from_mappings.assert_not_called()
-        load_annotation_reply_config.assert_called_once_with(session, "app1")
+        load_annotation_reply_config.assert_called_once_with(sqlite_session, "app1")
         app_model_config.to_dict.assert_called_once_with(annotation_reply=annotation_reply)
         assert get_app_config.call_args.kwargs["annotation_reply"] is annotation_reply
 
