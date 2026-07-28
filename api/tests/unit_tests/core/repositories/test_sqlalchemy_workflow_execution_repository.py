@@ -292,6 +292,7 @@ class TestSQLAlchemyWorkflowExecutionRepository:
     ):
         repo = SQLAlchemyWorkflowExecutionRepository(
             session_factory=mock_session_factory,
+            tenant_id=RESOURCE_TENANT_ID,
             user=mock_account,
             app_id="test_app",
             triggered_from=WorkflowRunTriggeredFrom.APP_RUN,
@@ -314,6 +315,7 @@ class TestSQLAlchemyWorkflowExecutionRepository:
     ):
         repo = SQLAlchemyWorkflowExecutionRepository(
             session_factory=mock_session_factory,
+            tenant_id=RESOURCE_TENANT_ID,
             user=mock_account,
             app_id="test_app",
             triggered_from=WorkflowRunTriggeredFrom.APP_RUN,
@@ -325,7 +327,7 @@ class TestSQLAlchemyWorkflowExecutionRepository:
         mock_task.delay.assert_called_once()
         call_args = mock_task.delay.call_args.kwargs
         assert call_args["execution_data"] == sample_workflow_execution.model_dump()
-        assert call_args["tenant_id"] == mock_account.current_tenant_id
+        assert call_args["tenant_id"] == RESOURCE_TENANT_ID
         assert call_args["app_id"] == "test_app"
         assert call_args["triggered_from"] == WorkflowRunTriggeredFrom.APP_RUN
         assert call_args["creator_user_id"] == mock_account.id
@@ -338,6 +340,7 @@ class TestSQLAlchemyWorkflowExecutionRepository:
     ):
         repo = SQLAlchemyWorkflowExecutionRepository(
             session_factory=mock_session_factory,
+            tenant_id=RESOURCE_TENANT_ID,
             user=mock_account,
             app_id="test_app",
             triggered_from=WorkflowRunTriggeredFrom.APP_RUN,
