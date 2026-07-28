@@ -9,6 +9,8 @@ import core.workflow.nodes.agent_v2.binding_resolver as resolver_module
 from core.workflow.nodes.agent_v2.binding_resolver import WorkflowAgentBindingError, WorkflowAgentBindingResolver
 from models.agent import (
     Agent,
+    AgentConfigRevision,
+    AgentConfigRevisionOperation,
     AgentConfigSnapshot,
     AgentScope,
     AgentSource,
@@ -18,7 +20,7 @@ from models.agent import (
 )
 from models.agent_config_entities import AgentSoulConfig, AgentSoulModelConfig, WorkflowNodeJobConfig
 
-RESOLVER_MODELS = (WorkflowAgentNodeBinding, Agent, AgentConfigSnapshot)
+RESOLVER_MODELS = (WorkflowAgentNodeBinding, Agent, AgentConfigSnapshot, AgentConfigRevision)
 
 
 def _resolve_ids() -> dict[str, str]:
@@ -134,6 +136,8 @@ def test_binding_resolver_uses_active_snapshot_for_roster_agent(
 ) -> None:
     ids = _resolve_ids()
     agent = _agent(tenant_id=ids["tenant_id"])
+    agent.scope = AgentScope.ROSTER
+    agent.source = AgentSource.ROSTER
     sqlite_session.add(agent)
     sqlite_session.flush()
     active_snapshot = _snapshot(tenant_id=ids["tenant_id"], agent_id=agent.id)
@@ -153,6 +157,95 @@ def test_binding_resolver_uses_active_snapshot_for_roster_agent(
     bundle = WorkflowAgentBindingResolver().resolve(**ids)
 
     assert bundle.snapshot.id == active_snapshot.id
+
+
+@pytest.mark.parametrize("sqlite_session", [RESOLVER_MODELS], indirect=True)
+def test_binding_resolver_rejects_unpublished_roster_agent(
+    monkeypatch: pytest.MonkeyPatch, sqlite_engine: Engine, sqlite_session: Session
+) -> None:
+    ids = _resolve_ids()
+    agent = _agent(tenant_id=ids["tenant_id"])
+    agent.scope = AgentScope.ROSTER
+    agent.source = AgentSource.IMPORTED
+    agent.app_id = str(uuid4())
+    agent.active_config_snapshot_id = str(uuid4())
+    agent.active_config_is_published = False
+    sqlite_session.add(agent)
+    sqlite_session.flush()
+    binding = _binding(
+        ids=ids,
+        agent_id=agent.id,
+        snapshot_id=agent.active_config_snapshot_id,
+        binding_type=WorkflowAgentBindingType.ROSTER_AGENT,
+    )
+    sqlite_session.add(binding)
+    sqlite_session.commit()
+    _bind_factory(monkeypatch, sqlite_engine)
+
+    with pytest.raises(WorkflowAgentBindingError) as exc_info:
+        WorkflowAgentBindingResolver().resolve(**ids)
+
+    assert exc_info.value.error_code == "agent_not_available"
+    assert "not been published" in str(exc_info.value)
+
+
+@pytest.mark.parametrize("sqlite_session", [RESOLVER_MODELS], indirect=True)
+def test_binding_resolver_requires_publish_provenance_for_active_roster_snapshot(
+    monkeypatch: pytest.MonkeyPatch, sqlite_engine: Engine, sqlite_session: Session
+) -> None:
+    ids = _resolve_ids()
+    agent = _agent(tenant_id=ids["tenant_id"])
+    agent.name = "Imported Agent"
+    agent.scope = AgentScope.ROSTER
+    agent.source = AgentSource.IMPORTED
+    agent.app_id = str(uuid4())
+    agent.active_config_is_published = False
+    sqlite_session.add(agent)
+    sqlite_session.flush()
+    snapshot = _snapshot(tenant_id=ids["tenant_id"], agent_id=agent.id)
+    sqlite_session.add(snapshot)
+    sqlite_session.flush()
+    agent.active_config_snapshot_id = snapshot.id
+    binding = _binding(
+        ids=ids,
+        agent_id=agent.id,
+        snapshot_id=snapshot.id,
+        binding_type=WorkflowAgentBindingType.ROSTER_AGENT,
+    )
+    sqlite_session.add_all(
+        [
+            binding,
+            AgentConfigRevision(
+                tenant_id=ids["tenant_id"],
+                agent_id=agent.id,
+                current_snapshot_id=snapshot.id,
+                revision=1,
+                operation=AgentConfigRevisionOperation.IMPORT_PACKAGE,
+            ),
+        ]
+    )
+    sqlite_session.commit()
+    _bind_factory(monkeypatch, sqlite_engine)
+
+    with pytest.raises(WorkflowAgentBindingError) as exc_info:
+        WorkflowAgentBindingResolver().resolve(**ids)
+    assert exc_info.value.error_code == "agent_not_available"
+
+    sqlite_session.add(
+        AgentConfigRevision(
+            tenant_id=ids["tenant_id"],
+            agent_id=agent.id,
+            current_snapshot_id=snapshot.id,
+            revision=2,
+            operation=AgentConfigRevisionOperation.PUBLISH_DRAFT,
+        )
+    )
+    sqlite_session.commit()
+
+    bundle = WorkflowAgentBindingResolver().resolve(**ids)
+
+    assert bundle.agent.id == agent.id
+    assert bundle.snapshot.id == snapshot.id
 
 
 @pytest.mark.parametrize("sqlite_session", [RESOLVER_MODELS], indirect=True)
